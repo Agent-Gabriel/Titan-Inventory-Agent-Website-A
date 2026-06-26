@@ -55,8 +55,17 @@ Configure your hosting provider with the following commands:
 * **Build Command:** `npm install && npm run build`
 * **Start Command:** `npm run start` (Executes the compiled `dist/server.cjs`)
 
-## 🔐 SPIFFE Workload Identity & AP2 Payment Protocol
-This storefront agent validates incoming payments autonomously utilizing JWS cryptographic verification.
-- **Workload Identity SPIFFE ID:** `spiffe://project-titan.com/ns/default/sa/storefront-agent`
-- **Payment Verification Key:** Asymmetric RSA-256 Public Key (`public_key.pem`)
-- **Decoupled Security Anchors:** Published progressively via the Federated ai-catalog endpoint `/.well-known/ai-catalog.json`.
+## 🔐 Security Hardening & AP2 Payments Protection
+To achieve bank-grade machine-to-machine payment verification, the storefront agent utilizes:
+- **Asymmetric Signature Cryptography (AP2)**: Order details are signed by the Concierge Agent using its RSA-2048 private key (`private_key.pem`) and verified by the Storefront Agent via `public_key.pem`.
+- **Replay Attack Protection**: Every payment note includes a UUID `transactionId` and a millisecond `timestamp`. The server caches used transaction IDs and enforces a strict 5-minute validity window ($|t_{server} - t_{signature}| \le 300,000\text{ ms}$). Replayed or stale signatures are blocked.
+- **Input Sanitization & Schema Bounds**: Schema validation blocks negative tire quantities or invalid parameter types, returning structured JSON-RPC error codes.
+
+## 👤 Data & User Privacy Architecture
+- **OAuth Token Separation**: Google Sheets API authorization tokens are cached in-memory only. They are never written to database files, persistent logs, or terminal streams.
+- **Geographic Generalization**: Location GPS coordinates are processed local-only for travel estimates, ensuring user routing details are never leaked.
+
+## 📊 Evals and Testing Framework (Kaggle Capstone)
+This project implements a complete evaluations framework:
+1. **Deterministic Evals**: Measured via an automated test suite (`test-security.js`) verifying signature validity, replay rejection, expired signature blocking, and parameter safety bounds.
+2. **Agent / LLM Evals**: grading the Concierge's anomaly sensitivity (identifying high tire temps or low pressure from raw telemetry) and Maps Grounding context accuracy.
