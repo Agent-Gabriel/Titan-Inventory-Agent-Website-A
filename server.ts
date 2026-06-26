@@ -34,10 +34,10 @@ const ai = new GoogleGenAI({
 
 // In-memory state for mock
 const inventory: InventoryItem[] = [
-  { id: '1', sku: 'UHP-PIR-001', brand: 'Pirelli', model: 'P Zero Trofeo R', size: '255/30ZR20', stock: 12, price: 850, category: 'Track' },
-  { id: '2', sku: 'UHP-MIC-002', brand: 'Michelin', model: 'Pilot Sport Cup 2', size: '325/30ZR21', stock: 8, price: 790, category: 'Track' },
-  { id: '3', sku: 'UHP-GOO-003', brand: 'Goodyear', model: 'Eagle F1 Supercar 3R', size: '305/30ZR20', stock: 4, price: 620, category: 'Street/Track' },
-  { id: '4', sku: 'UHP-BRI-004', brand: 'Bridgestone', model: 'Potenza Race', size: '245/35ZR19', stock: 20, price: 540, category: 'Street' },
+  { id: '1', sku: 'UHP-PIR-001', brand: 'Pirelli', model: 'P Zero Trofeo R', size: '255/30ZR20', stock: 12, price: 190000, category: 'Track' },
+  { id: '2', sku: 'UHP-MIC-002', brand: 'Michelin', model: 'Pilot Sport Cup 2', size: '325/30ZR21', stock: 8, price: 180000, category: 'Track' },
+  { id: '3', sku: 'UHP-GOO-003', brand: 'Goodyear', model: 'Eagle F1 Supercar 3R', size: '305/30ZR20', stock: 4, price: 140000, category: 'Street/Track' },
+  { id: '4', sku: 'UHP-BRI-004', brand: 'Bridgestone', model: 'Potenza Race', size: '245/35ZR19', stock: 20, price: 120000, category: 'Street' },
 ];
 
 let logs: LogEntry[] = [
@@ -139,6 +139,7 @@ app.post('/api/delivery-estimate', async (req, res) => {
 });
 
 let sheetsConfig: { token: string; spreadsheetId: string } | null = null;
+let cachedPublicKey: string | null = null;
 
 app.post('/api/save-sheets-config', (req, res) => {
   const { token, spreadsheetId } = req.body;
@@ -158,122 +159,144 @@ app.post('/api/rpc', (req, res) => {
   }
 
   const { method, params, id } = rpcRequest;
-  const { item, quantity, maxPrice, paymentNote } = params;
 
   addLog('MCP_SYNC', `MCP Server: Verifying stock for ${JSON.stringify(params)}`);
 
   setTimeout(async () => {
-    if (method === 'negotiate_order') {
-      const matchedItem = inventory.find(i => i.model.toLowerCase().includes(item.toLowerCase()) || i.brand.toLowerCase().includes(item.toLowerCase()));
-      
-      if (!matchedItem) {
-         const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Item not found in inventory' }, id };
-         addLog('A2A_OUT', 'Sent RPC Response (Rejected: Not Found)', response);
-         return res.json(response);
-      }
+    try {
+      if (method === 'negotiate_order') {
+        if (!params || params.item === undefined || params.quantity === undefined) {
+          const errorResponse = {
+            jsonrpc: '2.0',
+            error: { code: -32602, message: 'Invalid params: item and quantity are required' },
+            id
+          };
+          addLog('A2A_OUT', 'Sent RPC Parameter Validation Error', errorResponse);
+          return res.status(400).json(errorResponse);
+        }
 
-      if (matchedItem.stock < quantity) {
-         const response = { jsonrpc: '2.0', result: { status: 'input-required', reason: 'Insufficient stock', counter_offer: { available: matchedItem.stock } }, id };
-         addLog('A2A_OUT', 'Sent RPC Response (Input Required: Low Stock)', response);
-         return res.json(response);
-      }
+        const { item, quantity, maxPrice, paymentNote } = params;
+        const matchedItem = inventory.find(i => i.model.toLowerCase().includes(item.toLowerCase()) || i.brand.toLowerCase().includes(item.toLowerCase()));
+        
+        if (!matchedItem) {
+           const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Item not found in inventory' }, id };
+           addLog('A2A_OUT', 'Sent RPC Response (Rejected: Not Found)', response);
+           return res.json(response);
+        }
 
-      if (maxPrice && matchedItem.price > maxPrice) {
-         const response = { jsonrpc: '2.0', result: { status: 'input-required', reason: 'Price too low', counter_offer: { requiredPrice: matchedItem.price } }, id };
-         addLog('A2A_OUT', 'Sent RPC Response (Input Required: Price Match)', response);
-         return res.json(response);
-      }
-      
-      // Handle Negotiation vs Final purchase
-      if (paymentNote === 'valid-ap2-note') {
-        // Pre-checkout negotiation success
+        if (matchedItem.stock < quantity) {
+           const response = { jsonrpc: '2.0', result: { status: 'input-required', reason: 'Insufficient stock', counter_offer: { available: matchedItem.stock } }, id };
+           addLog('A2A_OUT', 'Sent RPC Response (Input Required: Low Stock)', response);
+           return res.json(response);
+        }
+
+        if (maxPrice && matchedItem.price > maxPrice) {
+           const response = { jsonrpc: '2.0', result: { status: 'input-required', reason: 'Price too low', counter_offer: { requiredPrice: matchedItem.price } }, id };
+           addLog('A2A_OUT', 'Sent RPC Response (Input Required: Price Match)', response);
+           return res.json(response);
+        }
+        
+        // Handle Negotiation vs Final purchase
+        if (paymentNote === 'valid-ap2-note') {
+          // Pre-checkout negotiation success
+          const confirmation = {
+            orderId: 'PROP-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+            item: matchedItem,
+            quantity,
+            total: matchedItem.price * quantity,
+            status: 'negotiated'
+          };
+          const response = { jsonrpc: '2.0', result: { status: 'negotiated', confirmation }, id };
+          addLog('A2A_OUT', 'Sent RPC Response (Negotiated)', response);
+          return res.json(response);
+        }
+
+        // Verify Detached JWS Payment Signature
+        addLog('AP2_AUTH', 'AP2 Protocol: Verifying digital JWS signature', { amount: matchedItem.price * quantity });
+        
+        let signatureVerified = false;
+        try {
+          let publicKey = cachedPublicKey;
+          if (!publicKey) {
+            const pubKeyPath = path.join(process.cwd(), 'public_key.pem');
+            publicKey = await fs.promises.readFile(pubKeyPath, 'utf8');
+            cachedPublicKey = publicKey;
+          }
+          
+          if (publicKey && paymentNote) {
+            const parts = paymentNote.split('.');
+            if (parts.length === 3 && parts[1] === '') {
+              const [encodedHeader, _, signature] = parts;
+              const expectedPayload = {
+                item: params.item,
+                quantity: params.quantity,
+                maxPrice: params.maxPrice,
+                total: matchedItem.price * params.quantity + 25000
+              };
+              const sortedPayload: any = {};
+              Object.keys(expectedPayload).sort().forEach(key => {
+                sortedPayload[key] = (expectedPayload as any)[key];
+              });
+              const encodedPayload = Buffer.from(JSON.stringify(sortedPayload)).toString('base64url');
+              
+              const verify = crypto.createVerify('RSA-SHA256');
+              verify.update(`${encodedHeader}.${encodedPayload}`);
+              signatureVerified = verify.verify(publicKey, signature, 'base64url');
+            }
+          }
+        } catch (e: any) {
+          console.error("JWS Verification failed:", e);
+        }
+
+        if (!signatureVerified) {
+          const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Invalid JWS AP2 cryptographic signature' }, id };
+          addLog('A2A_OUT', 'Sent RPC Response (Rejected: Cryptographic Verification Failed)', response);
+          return res.json(response);
+        }
+
+        // Process successful order & decrement inventory stock
+        matchedItem.stock -= quantity;
         const confirmation = {
-          orderId: 'PROP-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+          orderId: 'ORD-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
           item: matchedItem,
           quantity,
           total: matchedItem.price * quantity,
-          status: 'negotiated'
+          status: 'confirmed'
         };
-        const response = { jsonrpc: '2.0', result: { status: 'negotiated', confirmation }, id };
-        addLog('A2A_OUT', 'Sent RPC Response (Negotiated)', response);
-        return res.json(response);
-      }
 
-      // Verify Detached JWS Payment Signature
-      addLog('AP2_AUTH', 'AP2 Protocol: Verifying digital JWS signature', { amount: matchedItem.price * quantity });
-      
-      let signatureVerified = false;
-      try {
-        const pubKeyPath = path.join(process.cwd(), 'public_key.pem');
-        if (fs.existsSync(pubKeyPath)) {
-          const publicKey = fs.readFileSync(pubKeyPath, 'utf8');
-          
-          const parts = paymentNote.split('.');
-          if (parts.length === 3 && parts[1] === '') {
-            const [encodedHeader, _, signature] = parts;
-            const expectedPayload = {
-              item: "Michelin Pilot Sport Cup 2",
-              quantity: 1,
-              maxPrice: 250000,
-              total: 205000
-            };
-            const sortedPayload: any = {};
-            Object.keys(expectedPayload).sort().forEach(key => {
-              sortedPayload[key] = (expectedPayload as any)[key];
+        // Record logistics log in Google Sheets MCP
+        if (sheetsConfig) {
+          try {
+            await appendRowToSheet(sheetsConfig.token, sheetsConfig.spreadsheetId, {
+              timestamp: new Date().toLocaleString(),
+              activityType: 'ORDER_FULFILLMENT',
+              details: `Purchased ${quantity}x ${matchedItem.brand} ${matchedItem.model} - Replaced critical Rear-Left tire on Craig's Aventador SVJ.`,
+              status: 'CONFIRMED'
             });
-            const encodedPayload = Buffer.from(JSON.stringify(sortedPayload)).toString('base64url');
-            
-            const verify = crypto.createVerify('RSA-SHA256');
-            verify.update(`${encodedHeader}.${encodedPayload}`);
-            signatureVerified = verify.verify(publicKey, signature, 'base64url');
+            addLog('MCP_SYNC', 'Google Sheets MCP updated successfully with order logistics');
+          } catch (sheetsErr: any) {
+            console.error('Failed to log to Google Sheets MCP:', sheetsErr);
+            addLog('INFO', 'Google Sheets MCP log append failed', sheetsErr.message);
           }
+        } else {
+          addLog('INFO', 'Google Sheets MCP sync skipped: Active token config not initialized');
         }
-      } catch (e: any) {
-        console.error("JWS Verification failed:", e);
-      }
 
-      if (!signatureVerified) {
-        const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Invalid JWS AP2 cryptographic signature' }, id };
-        addLog('A2A_OUT', 'Sent RPC Response (Rejected: Cryptographic Verification Failed)', response);
+        const response = { jsonrpc: '2.0', result: { status: 'confirmed', confirmation }, id };
+        addLog('A2A_OUT', 'Sent RPC Response (Order Confirmed)', response);
         return res.json(response);
       }
 
-      // Process successful order & decrement inventory stock
-      matchedItem.stock -= quantity;
-      const confirmation = {
-        orderId: 'ORD-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-        item: matchedItem,
-        quantity,
-        total: matchedItem.price * quantity,
-        status: 'confirmed'
-      };
-
-      // Record logistics log in Google Sheets MCP
-      if (sheetsConfig) {
-        try {
-          await appendRowToSheet(sheetsConfig.token, sheetsConfig.spreadsheetId, {
-            timestamp: new Date().toLocaleString(),
-            activityType: 'ORDER_FULFILLMENT',
-            details: `Purchased ${quantity}x ${matchedItem.brand} ${matchedItem.model} - Replaced critical Rear-Left tire on Craig's Aventador SVJ.`,
-            status: 'CONFIRMED'
-          });
-          addLog('MCP_SYNC', 'Google Sheets MCP updated successfully with order logistics');
-        } catch (sheetsErr: any) {
-          console.error('Failed to log to Google Sheets MCP:', sheetsErr);
-          addLog('INFO', 'Google Sheets MCP log append failed', sheetsErr.message);
-        }
-      } else {
-        addLog('INFO', 'Google Sheets MCP sync skipped: Active token config not initialized');
+      const errorResponse = { jsonrpc: '2.0', error: { code: -32601, message: 'Method not found' }, id };
+      addLog('A2A_OUT', 'Sent RPC Error', errorResponse);
+      return res.json(errorResponse);
+    } catch (error: any) {
+      console.error("Error processing RPC request:", error);
+      addLog('INFO', 'RPC process failed with exception', { error: error.message || error });
+      if (!res.headersSent) {
+        return res.status(500).json({ error: 'Internal Server Error' });
       }
-
-      const response = { jsonrpc: '2.0', result: { status: 'confirmed', confirmation }, id };
-      addLog('A2A_OUT', 'Sent RPC Response (Order Confirmed)', response);
-      return res.json(response);
     }
-
-    const errorResponse = { jsonrpc: '2.0', error: { code: -32601, message: 'Method not found' }, id };
-    addLog('A2A_OUT', 'Sent RPC Error', errorResponse);
-    return res.json(errorResponse);
   }, 1000);
 });
 

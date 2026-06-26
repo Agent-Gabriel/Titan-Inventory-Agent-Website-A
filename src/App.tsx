@@ -211,7 +211,7 @@ export default function App() {
                           <div className="text-sm font-serif italic">{item.brand}</div>
                           <div className="text-[11px] opacity-60 font-mono mt-0.5">{item.model} • {item.size}</div>
                         </td>
-                        <td className="px-4 py-3 text-right font-mono text-sm">${item.price}</td>
+                        <td className="px-4 py-3 text-right font-mono text-sm">฿{item.price.toLocaleString()}</td>
                         <td className="px-4 py-3 text-right">
                           <span className={`inline-flex px-2 py-1 text-[10px] font-mono tracking-widest uppercase border ${item.stock > 10 ? 'bg-green-900/20 text-green-400 border-green-500/20' : item.stock > 0 ? 'bg-orange-900/20 text-editorial-orange border-editorial-orange/20' : 'bg-red-900/20 text-red-400 border-red-500/20'}`}>
                             {item.stock} unit{item.stock !== 1 ? 's' : ''}
