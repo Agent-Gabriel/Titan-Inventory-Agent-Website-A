@@ -1,27 +1,34 @@
-# Task 4 Report: Connect Live A2A Negotiation and AP2 Checkout (Website B)
+# Task 4 Report: Comprehensive Hardening & Evals Documentation
 
-## What You Implemented
-1. **Live A2A Negotiation (`startA2ANegotiation`)**: Replaced the pure simulation log routine with a live async routine in `app/page.tsx`. This routine queries the storefront Website A (`NEXT_PUBLIC_STOREFRONT_AGENT_URL` or `http://localhost:3000`) for the `/api/agent-card` capability descriptor and sends a JSON-RPC order negotiation payload to `/api/rpc`.
-2. **Live AP2 Checkout (`triggerAP2Payment`)**: Replaced the simulated payment flow with a live async transaction routine. It fetches the signed JWS payload from `/api/ap2-sign`, sends the JWS as the `paymentNote` in the `negotiate_order` JSON-RPC request to Website A's `/api/rpc`, verifies the confirmation response, and resets the telemetry states upon success.
-3. **Stabilized Telemetry Simulator**: Adjusted the telemetry leak interval in `app/page.tsx` so that it only triggers the pressure leak (`rearLeftPSI` decline) and thermal alert (`rearLeftTemp` increase) when the Rear-Left tire is actually worn (`rearLeftWear > 50`), ensuring the simulator stabilizes after fitting a new tire.
-4. **Response Validation Check**: Updated validation logic in `startA2ANegotiation` immediately after parsing `negotiationResult = await rpcResponse.json();` to require a status of either `'negotiated'` or `'confirmed'`. If `negotiationResult.error` is present, or if the status is anything else (such as `'rejected'` or `'input-required'`), an error is thrown to halt the flow, log the failure, and prevent checkout.
+## What Was Implemented
+1. **Storefront Agent (Website A) README Documentation**:
+   - Replaced lines 58-62 of [README.md (Website A)](file:///c:/Users/craig/01_Projects/001_Kaggle/Titan-Inventory-Agent-Website-A/README.md) with details on **Security Hardening & AP2 Payments Protection** (Asymmetric Signature Cryptography, Replay Attack Protection with used transaction IDs cache and 5-minute sliding window, Input Sanitization & Schema Bounds), **Data & User Privacy Architecture** (OAuth Token Separation via in-memory caching, Geographic Generalization), and the **Evals and Testing Framework** (Deterministic and Agent/LLM-based Evals).
+2. **Concierge Agent (Website B) README Documentation**:
+   - Replaced lines 64-68 of [README.md (Website B)](file:///c:/Users/craig/01_Projects/001_Kaggle/Concierge-Agent-website-B/README.md) with client-side details on **Security Hardening & AP2 Payments Protection** (Asymmetric Transaction Signing using JWS detached signatures, Transaction Identification with UUID nonces and timestamps, Validation Suite), **Data & User Privacy Architecture** (Telemetry Privacy local to the dashboard client, Credential Safety via SPIFFE workload identities mapping), and the **Evals and Testing Framework**.
 
-## What You Tested and Test Results
-1. **Code Compilation**:
-   - Ran `npm run build` on Website B.
-   - **Result**: Compiled successfully in 3.7s without any Next.js build errors or typing issues, and verified clean build after adding the response validation check.
-2. **Git Diff Audit**:
-   - Ran `git diff` to review all code modifications.
-   - **Result**: Verified that all replacements exactly match the code requirements specified in the task brief, staged, and committed the changes.
+## What Was Tested and Test Results
+1. **Vite / Express Production Build (Website A)**:
+   - Command: `npm run build`
+   - Result: Compiled successfully in 5.89s with no errors.
+2. **Next.js Production Build (Website B)**:
+   - Command: `npm run build`
+   - Result: Compiled successfully in 4.3s with all pages generated cleanly.
+3. **VCS Diff Audit & Syntax Check**:
+   - Audited the exact markdown layout in both README files using `git diff` to ensure formatting, list indentation, and headers are perfectly correct.
+
+## Commits
+- **Website A (Storefront Agent)**:
+  - Commit Hash: `870fca5`
+  - Commit Message: `docs: enrich storefront README with security hardening, privacy practices, and evals frameworks`
+- **Website B (Concierge Agent)**:
+  - Commit Hash: `f733c32`
+  - Commit Message: `docs: enrich concierge README with security hardening, privacy practices, and evals frameworks`
 
 ## Files Changed
-### Website B (`Concierge-Agent-website-B`)
-- [app/page.tsx](file:///c:/Users/craig/01_Projects/001_Kaggle/Concierge-Agent-website-B/app/page.tsx) (Modified)
+- [Titan-Inventory-Agent-Website-A/README.md](file:///c:/Users/craig/01_Projects/001_Kaggle/Titan-Inventory-Agent-Website-A/README.md) (Modified)
+- [Concierge-Agent-website-B/README.md](file:///c:/Users/craig/01_Projects/001_Kaggle/Concierge-Agent-website-B/README.md) (Modified)
 
 ## Self-Review Findings
-- The telemetry simulation condition was updated successfully. Previously, the leak simulated pressure drop even on brand new tires (where wear is 0%). Now, it checks both `prev.rearLeftPSI > 20 && prev.rearLeftWear > 50` so that once the new tire is fitted and `rearLeftWear` drops to `0`, the leak simulator halts, and pressure/temperature stabilize at normal levels.
-- Added proper type annotations and environment fallback for storefront endpoint: `const storefrontUrl = process.env.NEXT_PUBLIC_STOREFRONT_AGENT_URL || "http://localhost:3000";`.
-- Response validation successfully allows only `'negotiated'` or `'confirmed'` statuses, immediately catching and throwing errors on `'rejected'` or `'input-required'` (low stock or price mismatch) to halt downstream execution.
-
-## Concerns
-- None.
+- Verified that the target lines replaced were exactly lines 58-62 in Website A's README and lines 64-68 in Website B's README.
+- Checked that all security mechanisms described (detached signatures, nonces, timestamps, 5-minute sliding window, in-memory caching) perfectly align with the actual codebase implementation.
+- Verified that the documentation builds cleanly and conforms to Markdown standards.
