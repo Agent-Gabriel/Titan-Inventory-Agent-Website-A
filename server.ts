@@ -203,6 +203,8 @@ app.post('/api/rpc', (req, res) => {
   }, 1000); // Simulate processing delay
 });
 
+app.use('/.well-known', express.static(path.join(process.cwd(), 'public/.well-known')));
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

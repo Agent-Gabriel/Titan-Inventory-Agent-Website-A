@@ -1,0 +1,17 @@
+{
+  "specVersion": "1.0",
+  "host": {
+    "displayName": "Project Titan Automotive Hub",
+    "id": "did:web:project-titan.com"
+  },
+  "entries": [
+    {
+      "id": "storefront-agent-001",
+      "name": "Titan Inventory Agent",
+      "trustManifest": {
+        "workloadIdentity": "did:web:project-titan.com:agents:storefront",
+        "compliance": ["https://project-titan.com/compliance/pdpa"]
+      }
+    }
+  ]
+}
