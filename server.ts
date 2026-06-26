@@ -188,6 +188,7 @@ app.post('/api/delivery-estimate', async (req, res) => {
 
 let sheetsConfig: { token: string; spreadsheetId: string } | null = null;
 let cachedPublicKey: string | null = null;
+const usedTransactionIds = new Set<string>();
 
 app.post('/api/save-sheets-config', (req, res) => {
   const { token, spreadsheetId } = req.body;
@@ -223,7 +224,19 @@ app.post('/api/rpc', (req, res) => {
           return res.status(400).json(errorResponse);
         }
 
-        const { item, quantity, maxPrice, paymentNote } = params;
+        const { item, quantity, maxPrice, paymentNote, transactionId, timestamp } = params;
+
+        // Enforce strict parameter validation
+        if (typeof quantity !== 'number' || quantity <= 0 || !Number.isInteger(quantity)) {
+          const errorResponse = {
+            jsonrpc: '2.0',
+            error: { code: -32602, message: 'Invalid params: quantity must be a positive integer' },
+            id
+          };
+          addLog('A2A_OUT', 'Sent RPC Validation Error (Invalid Quantity)', errorResponse);
+          return res.status(400).json(errorResponse);
+        }
+
         const matchedItem = findInventoryItem(item);
         
         if (!matchedItem) {
@@ -275,12 +288,37 @@ app.post('/api/rpc', (req, res) => {
             const parts = paymentNote.split('.');
             if (parts.length === 3 && parts[1] === '') {
               const [encodedHeader, _, signature] = parts;
+              
+              if (!transactionId || !timestamp) {
+                addLog('AP2_AUTH', 'AP2 Protocol: Missing transactionId or timestamp in transaction parameters');
+                const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Missing transactionId or timestamp' }, id };
+                return res.json(response);
+              }
+
+              // Check for expired timestamp (5 minutes window)
+              const timeDiff = Math.abs(Date.now() - timestamp);
+              if (timeDiff > 300000) {
+                addLog('AP2_AUTH', `AP2 Protocol: Transaction expired. Age: ${timeDiff}ms`);
+                const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Transaction signature has expired' }, id };
+                return res.json(response);
+              }
+
+              // Check for replay attack
+              if (usedTransactionIds.has(transactionId)) {
+                addLog('AP2_AUTH', `AP2 Protocol: Replay attack detected for transactionId: ${transactionId}`);
+                const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Replay attack detected: transaction already processed' }, id };
+                return res.json(response);
+              }
+
               const expectedPayload = {
                 item: params.item,
                 quantity: params.quantity,
                 maxPrice: params.maxPrice,
-                total: matchedItem.price * params.quantity + 25000
+                total: matchedItem.price * params.quantity + 25000,
+                transactionId: params.transactionId,
+                timestamp: params.timestamp
               };
+              
               const sortedPayload: any = {};
               Object.keys(expectedPayload).sort().forEach(key => {
                 sortedPayload[key] = (expectedPayload as any)[key];
@@ -290,6 +328,15 @@ app.post('/api/rpc', (req, res) => {
               const verify = crypto.createVerify('RSA-SHA256');
               verify.update(`${encodedHeader}.${encodedPayload}`);
               signatureVerified = verify.verify(publicKey, signature, 'base64url');
+
+              if (signatureVerified) {
+                // Register transactionId to prevent replay attacks
+                usedTransactionIds.add(transactionId);
+                setTimeout(() => {
+                  usedTransactionIds.delete(transactionId);
+                  addLog('INFO', `Pruned transactionId from memory cache: ${transactionId}`);
+                }, 300000);
+              }
             }
           }
         } catch (e: any) {
