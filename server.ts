@@ -40,6 +40,43 @@ const inventory: InventoryItem[] = [
   { id: '4', sku: 'UHP-BRI-004', brand: 'Bridgestone', model: 'Potenza Race', size: '245/35ZR19', stock: 20, price: 120000, category: 'Street' },
 ];
 
+function normalizeInventorySearch(value: unknown) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function findInventoryItem(requestedItem: unknown) {
+  const normalizedRequest = normalizeInventorySearch(requestedItem);
+  if (!normalizedRequest) {
+    return undefined;
+  }
+
+  const requestTokens = normalizedRequest.split(' ').filter(Boolean);
+
+  return inventory.find((item) => {
+    const brand = normalizeInventorySearch(item.brand);
+    const model = normalizeInventorySearch(item.model);
+    const searchableIdentity = normalizeInventorySearch([
+      item.brand,
+      item.model,
+      item.sku,
+      item.size,
+      item.category,
+    ].join(' '));
+
+    return (
+      brand === normalizedRequest ||
+      model === normalizedRequest ||
+      searchableIdentity === normalizedRequest ||
+      model.includes(normalizedRequest) ||
+      searchableIdentity.includes(normalizedRequest) ||
+      requestTokens.every((token) => searchableIdentity.includes(token))
+    );
+  });
+}
+
 let logs: LogEntry[] = [
   { id: Date.now().toString() + '-0', timestamp: new Date().toISOString(), type: 'INFO', message: 'UHP Tire Storefront Agent Initialized' }
 ];
@@ -56,6 +93,15 @@ function addLog(type: LogEntry['type'], message: string, details?: any) {
   return newLog;
 }
 
+function isDashboardAgentCardRead(req: express.Request) {
+  const appUrl = process.env.APP_URL || `http://localhost:${PORT}`;
+  const origin = req.get('origin') || '';
+  const referer = req.get('referer') || '';
+  const fetchSite = req.get('sec-fetch-site') || '';
+
+  return origin.startsWith(appUrl) || referer.startsWith(appUrl) || fetchSite === 'same-origin';
+}
+
 const agentCard: AgentCard = {
   id: 'agent-uhp-store-01',
   name: 'UHP Tire Storefront',
@@ -70,7 +116,9 @@ const agentCard: AgentCard = {
 };
 
 app.get('/api/agent-card', (req, res) => {
-  addLog('INFO', 'Agent Card requested by remote agent');
+  if (!isDashboardAgentCardRead(req)) {
+    addLog('INFO', 'Agent Card requested by remote agent');
+  }
   res.json(agentCard);
 });
 
@@ -176,7 +224,7 @@ app.post('/api/rpc', (req, res) => {
         }
 
         const { item, quantity, maxPrice, paymentNote } = params;
-        const matchedItem = inventory.find(i => i.model.toLowerCase().includes(item.toLowerCase()) || i.brand.toLowerCase().includes(item.toLowerCase()));
+        const matchedItem = findInventoryItem(item);
         
         if (!matchedItem) {
            const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Item not found in inventory' }, id };

@@ -11,14 +11,21 @@ export default function App() {
   const [simulating, setSimulating] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
+  const fetchAgentCard = async () => {
+    try {
+      const cardRes = await fetch('/api/agent-card');
+      setAgentCard(await cardRes.json());
+    } catch (e) {
+      console.error('Error fetching agent card', e);
+    }
+  };
+
   const fetchState = async () => {
     try {
-      const [cardRes, invRes, logsRes] = await Promise.all([
-        fetch('/api/agent-card'),
+      const [invRes, logsRes] = await Promise.all([
         fetch('/api/inventory'),
         fetch('/api/logs')
       ]);
-      setAgentCard(await cardRes.json());
       setInventory(await invRes.json());
       setLogs(await logsRes.json());
     } catch (e) {
@@ -27,6 +34,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    fetchAgentCard();
     fetchState();
     const interval = setInterval(fetchState, 2000); // Polling for updates
     return () => clearInterval(interval);

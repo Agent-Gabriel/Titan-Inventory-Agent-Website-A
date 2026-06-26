@@ -1,0 +1,98 @@
+# Review package: 9dc5c34..HEAD
+
+## Commits
+01a4484 Add CONCIERGE_AGENT_URL to .env.example
+7f717b8 docs: update progress ledger for Task 1 completion
+3b3f62c feat: environment routing, cors middleware, and public key setup
+
+## Files changed
+.env.example                 |  3 +++
+ .superpowers/sdd/progress.md |  8 ++++++++
+ public_key.pem               |  9 +++++++++
+ server.ts                    | 11 +++++++++++
+ 4 files changed, 31 insertions(+)
+
+## Diff
+diff --git a/.env.example b/.env.example
+index 7a550fe..a724617 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,9 +1,12 @@
+ # GEMINI_API_KEY: Required for Gemini AI API calls.
+ # AI Studio automatically injects this at runtime from user secrets.
+ # Users configure this via the Secrets panel in the AI Studio UI.
+ GEMINI_API_KEY="MY_GEMINI_API_KEY"
+ 
+ # APP_URL: The URL where this applet is hosted.
+ # AI Studio automatically injects this at runtime with the Cloud Run service URL.
+ # Used for self-referential links, OAuth callbacks, and API endpoints.
+ APP_URL="MY_APP_URL"
++
++# CONCIERGE_AGENT_URL: The URL of the Concierge Agent (Website B)
++CONCIERGE_AGENT_URL="http://localhost:3001"
+diff --git a/.superpowers/sdd/progress.md b/.superpowers/sdd/progress.md
+new file mode 100644
+index 0000000..ce67128
+--- /dev/null
++++ b/.superpowers/sdd/progress.md
+@@ -0,0 +1,8 @@
++# Progress Ledger
++
++- [x] Task 1: Environment Routing, CORS and Key Generation Setup
++- [ ] Task 2: Implement Cryptographic JWS Endpoint (Website B)
++- [ ] Task 3: Setup Agentic Resource Discovery catalogs (ARD)
++- [ ] Task 4: Connect Live A2A Negotiation and AP2 Checkout (Website B)
++- [ ] Task 5: Implement JWS Verification & Google Sheets Logging (Website A)
++- [ ] Task 6: Readme updates & trust documentation
+diff --git a/public_key.pem b/public_key.pem
+new file mode 100644
+index 0000000..68077d0
+--- /dev/null
++++ b/public_key.pem
+@@ -0,0 +1,9 @@
++-----BEGIN PUBLIC KEY-----
++MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjP5ZZhmuxlp2fTpQaZz4
++0BbubJNshy/punBbJtOb6JPAAyk6cl6jrQ4GKbvu7Q7yweVqLODNClNJCUrKChuD
++KDIhgCTZO5C1U30ddVX56HSHejgFSglxkrLuwIAHehI4/zauqHeg/NHdBYqHZZ1i
++l4HYbEooFs9b73Dhn55mSkz4HZHUdsK9uyUss5i4PJLeeue2Lx165mvheNoaGnv8
++1ygK35iCqaTh1/9sUrKKmlRxrWlYloBAGuHVQUxx4VjMUVk82BPedJxS1CCd6pYU
++akQ1/eb/1CqhSfMpdwXVOmIzL7KCC1C3+6BV/TFS/jLTpEHrYLMB0bIK8s1KFvuD
++6wIDAQAB
++-----END PUBLIC KEY-----
+diff --git a/server.ts b/server.ts
+index 2ccda41..a8c6626 100644
+--- a/server.ts
++++ b/server.ts
+@@ -1,21 +1,32 @@
++import 'dotenv/config';
+ import express from 'express';
+ import path from 'path';
+ import { AgentCard, InventoryItem, LogEntry } from './src/types';
+ import { createServer as createViteServer } from 'vite';
+ import { GoogleGenAI } from '@google/genai';
+ 
+ const app = express();
+ const PORT = 3000;
+ 
+ app.use(express.json());
+ 
++app.use((req, res, next) => {
++  res.header('Access-Control-Allow-Origin', '*');
++  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
++  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
++  if (req.method === 'OPTIONS') {
++    return res.sendStatus(200);
++  }
++  next();
++});
++
+ const ai = new GoogleGenAI({
+   apiKey: process.env.GEMINI_API_KEY,
+   httpOptions: {
+     headers: {
+       'User-Agent': 'aistudio-build',
+     }
+   }
+ });
+ 
+ // In-memory state for mock

@@ -1,0 +1,1 @@
+NEXT_PUBLIC_STOREFRONT_AGENT_URL="http://<website-a-host>:<port>"

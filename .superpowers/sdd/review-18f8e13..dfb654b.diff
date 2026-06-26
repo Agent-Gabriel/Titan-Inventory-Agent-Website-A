@@ -1,0 +1,115 @@
+# Review package: 18f8e13..HEAD
+
+## Commits
+dfb654b docs(website-a): update README with SPIFFE identities and add task 6 report
+
+## Files changed
+.superpowers/sdd/task-6-brief.md  | 46 +++++++++++++++++++++++++++++++++++++++
+ .superpowers/sdd/task-6-report.md | 24 ++++++++++++++++++++
+ README.md                         |  6 +++++
+ 3 files changed, 76 insertions(+)
+
+## Diff
+diff --git a/.superpowers/sdd/task-6-brief.md b/.superpowers/sdd/task-6-brief.md
+new file mode 100644
+index 0000000..bd2a4b2
+--- /dev/null
++++ b/.superpowers/sdd/task-6-brief.md
+@@ -0,0 +1,46 @@
++### Task 6: Readme updates & trust documentation
++
++- [ ] **Step 1: Update Website A README**
++  Modify `c:\Users\craig\01_Projects\001_Kaggle\Titan-Inventory-Agent-Website-A\README.md` to append the SPIFFE security implementation:
++  ```markdown
++  
++  ## 🔐 SPIFFE Workload Identity & AP2 Payment Protocol
++  This storefront agent validates incoming payments autonomously utilizing JWS cryptographic verification.
++  - **Workload Identity SPIFFE ID:** `spiffe://project-titan.com/ns/default/sa/storefront-agent`
++  - **Payment Verification Key:** Asymmetric RSA-256 Public Key (`public_key.pem`)
++  - **Decoupled Security Anchors:** Published progressively via the Federated ai-catalog endpoint `/.well-known/ai-catalog.json`.
++  ```
++
++- [ ] **Step 2: Update Website B README**
++  Modify `c:\Users\craig\01_Projects\001_Kaggle\Concierge-Agent-website-B\README.md` to append the SPIFFE security implementation:
++  ```markdown
++  
++  ## 🔐 SPIFFE Workload Identity & AP2 Payment Protocol
++  Transactions are secured via asymmetric signature cryptography to prevent invoice tampering.
++  - **Workload Identity SPIFFE ID:** `spiffe://project-titan.com/ns/default/sa/concierge-agent`
++  - **Transaction Signing Key:** Asymmetric RSA-256 Private Key (`private_key.pem`)
++  - **Decoupled Security Anchors:** Exposed via `.well-known/ai-catalog.json` static discovery catalog.
++  ```
++
++---
++
++## Verification Plan
++
++### Automated Tests
++Run offline signature test script:
++`node test-sign.js`
++
++### Manual Verification
++1. Start Website A (Storefront Agent):
++   Run `npm run dev` in `c:\Users\craig\01_Projects\001_Kaggle\Titan-Inventory-Agent-Website-A`.
++2. Start Website B (Concierge Agent):
++   Run `npm run dev` in `c:\Users\craig\01_Projects\001_Kaggle\Concierge-Agent-website-B`.
++3. In Website A's frontend dashboard:
++   - Perform Google Sign-In to establish sheet access token.
++   - Click "Create Logistics Spreadsheet" to initialize the spreadsheet.
++4. In Website B's dashboard:
++   - Open Booking tab, click "START LOGISTICAL NEGOTIATION" to verify the live capabilities check and order negotiation.
++   - Click "CONTINUE TO CHECKOUT", hold the fingerprint reader.
++   - Confirm JWS is generated server-side, validated by Website A, and checkout updates to "success" with the generated signature.
++   - Verify Website B's Rear-Left tire telemetry successfully updates to nominal (35 PSI, 40°C, 0% wear).
++   - Check Google Sheets to verify the new logistics log is successfully appended.
+diff --git a/.superpowers/sdd/task-6-report.md b/.superpowers/sdd/task-6-report.md
+new file mode 100644
+index 0000000..55ff6c6
+--- /dev/null
++++ b/.superpowers/sdd/task-6-report.md
+@@ -0,0 +1,24 @@
++# Task 6 Report: Readme Updates & Trust Documentation
++
++## What was Implemented
++- Appended the **SPIFFE Workload Identity & AP2 Payment Protocol** specifications to the `README.md` of **Website A (UHP Tire Storefront Agent)**.
++- Appended the **SPIFFE Workload Identity & AP2 Payment Protocol** specifications to the `README.md` of **Website B (Titan Concierge Agent)**.
++
++## What was Tested and Test Results
++- **Offline Signature Validation:** Ran `node test-sign.js` in Website B directory. Both signature checks passed:
++  - `Offline signature validation: PASS`
++  - `Detached JWS structure and verification: PASS`
++- **Website A Compilation & Build:** Ran `npm run build` in Website A. The Vite build and ESBuild backend compilation completed successfully without errors.
++- **Website B Compilation & Build:** Ran `npm run build` in Website B. Next.js build compiled, checked types, and generated pages successfully without errors.
++
++## Files Changed
++- `c:\Users\craig\01_Projects\001_Kaggle\Titan-Inventory-Agent-Website-A\README.md`
++- `c:\Users\craig\01_Projects\001_Kaggle\Concierge-Agent-website-B\README.md`
++
++## Self-Review Findings
++- The appended markdown documentation exactly matches the specifications provided in the task brief.
++- The build verified that the project compiles properly.
++- All modifications are documented and verified.
++
++## Concerns
++- None.
+diff --git a/README.md b/README.md
+index df5949a..15c56f8 100644
+--- a/README.md
++++ b/README.md
+@@ -47,10 +47,16 @@ git push -u origin main
+ ### 2. Configure Environment Secrets
+ When deploying, ensure your host has the correct configuration:
+ * **GEMINI_API_KEY:** Required for the A2UI logistics estimate feature (Maps Grounding). Set this in your hosting provider's environment variables.
+ * If your `firebase-applet-config.json` contains sensitive service account data, do not commit it. Instead, inject it via environment variables in your hosting provider's dashboard.
+ * If using standard public Firebase configurations, ensure the domain of your hosted application is added to the **Authorized Domains** in your Firebase Authentication settings.
+ 
+ ### 3. Build & Start Commands
+ Configure your hosting provider with the following commands:
+ * **Build Command:** `npm install && npm run build`
+ * **Start Command:** `npm run start` (Executes the compiled `dist/server.cjs`)
++
++## 🔐 SPIFFE Workload Identity & AP2 Payment Protocol
++This storefront agent validates incoming payments autonomously utilizing JWS cryptographic verification.
++- **Workload Identity SPIFFE ID:** `spiffe://project-titan.com/ns/default/sa/storefront-agent`
++- **Payment Verification Key:** Asymmetric RSA-256 Public Key (`public_key.pem`)
++- **Decoupled Security Anchors:** Published progressively via the Federated ai-catalog endpoint `/.well-known/ai-catalog.json`.
