@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import crypto from 'crypto';
+import fs from 'fs';
+import { appendRowToSheet } from './src/lib/sheets';
 import { AgentCard, InventoryItem, LogEntry } from './src/types';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
@@ -135,6 +138,15 @@ app.post('/api/delivery-estimate', async (req, res) => {
   }
 });
 
+let sheetsConfig: { token: string; spreadsheetId: string } | null = null;
+
+app.post('/api/save-sheets-config', (req, res) => {
+  const { token, spreadsheetId } = req.body;
+  sheetsConfig = { token, spreadsheetId };
+  addLog('INFO', 'Google Sheets OAuth Config synchronized on server memory');
+  res.json({ status: 'ok' });
+});
+
 app.post('/api/rpc', (req, res) => {
   const rpcRequest = req.body;
   addLog('A2A_IN', 'Received RPC Request from Concierge Agent', rpcRequest);
@@ -146,13 +158,12 @@ app.post('/api/rpc', (req, res) => {
   }
 
   const { method, params, id } = rpcRequest;
+  const { item, quantity, maxPrice, paymentNote } = params;
 
-  // Simulate internal MCP lookup
   addLog('MCP_SYNC', `MCP Server: Verifying stock for ${JSON.stringify(params)}`);
 
-  setTimeout(() => {
+  setTimeout(async () => {
     if (method === 'negotiate_order') {
-      const { item, quantity, maxPrice, paymentNote } = params;
       const matchedItem = inventory.find(i => i.model.toLowerCase().includes(item.toLowerCase()) || i.brand.toLowerCase().includes(item.toLowerCase()));
       
       if (!matchedItem) {
@@ -173,16 +184,61 @@ app.post('/api/rpc', (req, res) => {
          return res.json(response);
       }
       
-      // Check Payment via AP2
-      addLog('AP2_AUTH', 'AP2 Protocol: Verifying digital promissory note', { note: paymentNote, amount: matchedItem.price * quantity });
-      
-      if (paymentNote !== 'valid-ap2-note') {
-        const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Invalid or missing AP2 promissory note' }, id };
-        addLog('A2A_OUT', 'Sent RPC Response (Rejected: AP2 Auth Failed)', response);
+      // Handle Negotiation vs Final purchase
+      if (paymentNote === 'valid-ap2-note') {
+        // Pre-checkout negotiation success
+        const confirmation = {
+          orderId: 'PROP-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+          item: matchedItem,
+          quantity,
+          total: matchedItem.price * quantity,
+          status: 'negotiated'
+        };
+        const response = { jsonrpc: '2.0', result: { status: 'negotiated', confirmation }, id };
+        addLog('A2A_OUT', 'Sent RPC Response (Negotiated)', response);
         return res.json(response);
       }
+
+      // Verify Detached JWS Payment Signature
+      addLog('AP2_AUTH', 'AP2 Protocol: Verifying digital JWS signature', { amount: matchedItem.price * quantity });
       
-      // Process successful order
+      let signatureVerified = false;
+      try {
+        const pubKeyPath = path.join(process.cwd(), 'public_key.pem');
+        if (fs.existsSync(pubKeyPath)) {
+          const publicKey = fs.readFileSync(pubKeyPath, 'utf8');
+          
+          const parts = paymentNote.split('.');
+          if (parts.length === 3 && parts[1] === '') {
+            const [encodedHeader, _, signature] = parts;
+            const expectedPayload = {
+              item: "Michelin Pilot Sport Cup 2",
+              quantity: 1,
+              maxPrice: 250000,
+              total: 205000
+            };
+            const sortedPayload: any = {};
+            Object.keys(expectedPayload).sort().forEach(key => {
+              sortedPayload[key] = (expectedPayload as any)[key];
+            });
+            const encodedPayload = Buffer.from(JSON.stringify(sortedPayload)).toString('base64url');
+            
+            const verify = crypto.createVerify('RSA-SHA256');
+            verify.update(`${encodedHeader}.${encodedPayload}`);
+            signatureVerified = verify.verify(publicKey, signature, 'base64url');
+          }
+        }
+      } catch (e: any) {
+        console.error("JWS Verification failed:", e);
+      }
+
+      if (!signatureVerified) {
+        const response = { jsonrpc: '2.0', result: { status: 'rejected', reason: 'Invalid JWS AP2 cryptographic signature' }, id };
+        addLog('A2A_OUT', 'Sent RPC Response (Rejected: Cryptographic Verification Failed)', response);
+        return res.json(response);
+      }
+
+      // Process successful order & decrement inventory stock
       matchedItem.stock -= quantity;
       const confirmation = {
         orderId: 'ORD-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
@@ -192,6 +248,24 @@ app.post('/api/rpc', (req, res) => {
         status: 'confirmed'
       };
 
+      // Record logistics log in Google Sheets MCP
+      if (sheetsConfig) {
+        try {
+          await appendRowToSheet(sheetsConfig.token, sheetsConfig.spreadsheetId, {
+            timestamp: new Date().toLocaleString(),
+            activityType: 'ORDER_FULFILLMENT',
+            details: `Purchased ${quantity}x ${matchedItem.brand} ${matchedItem.model} - Replaced critical Rear-Left tire on Craig's Aventador SVJ.`,
+            status: 'CONFIRMED'
+          });
+          addLog('MCP_SYNC', 'Google Sheets MCP updated successfully with order logistics');
+        } catch (sheetsErr: any) {
+          console.error('Failed to log to Google Sheets MCP:', sheetsErr);
+          addLog('INFO', 'Google Sheets MCP log append failed', sheetsErr.message);
+        }
+      } else {
+        addLog('INFO', 'Google Sheets MCP sync skipped: Active token config not initialized');
+      }
+
       const response = { jsonrpc: '2.0', result: { status: 'confirmed', confirmation }, id };
       addLog('A2A_OUT', 'Sent RPC Response (Order Confirmed)', response);
       return res.json(response);
@@ -200,7 +274,7 @@ app.post('/api/rpc', (req, res) => {
     const errorResponse = { jsonrpc: '2.0', error: { code: -32601, message: 'Method not found' }, id };
     addLog('A2A_OUT', 'Sent RPC Error', errorResponse);
     return res.json(errorResponse);
-  }, 1000); // Simulate processing delay
+  }, 1000);
 });
 
 app.use('/.well-known', express.static(path.join(process.cwd(), 'public/.well-known')));

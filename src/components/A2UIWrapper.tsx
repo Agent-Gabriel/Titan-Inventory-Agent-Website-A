@@ -43,6 +43,24 @@ export function A2UIWrapper() {
     return () => unsubscribe();
   }, [spreadsheetId]);
 
+  useEffect(() => {
+    const syncSheetsToken = async () => {
+      const token = await getAccessToken();
+      if (token && spreadsheetId) {
+        try {
+          await fetch('/api/save-sheets-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, spreadsheetId })
+          });
+        } catch (e) {
+          console.error("Failed to sync Sheets config to server:", e);
+        }
+      }
+    };
+    syncSheetsToken();
+  }, [user, spreadsheetId]);
+
   const loadSheetData = async (token: string, id: string) => {
     setIsLoadingSheetData(true);
     try {
@@ -139,7 +157,14 @@ export function A2UIWrapper() {
   const fetchEstimate = async () => {
     setIsLoadingEstimate(true);
     try {
-      const res = await fetch('/api/delivery-estimate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ destination: 'Beverly Hills, CA', origin: 'Downtown Los Angeles' }) });
+      const res = await fetch('/api/delivery-estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          destination: 'Hwy 201 near Khon Kaen, Thailand (16.4386 N, 102.8287 E)',
+          origin: 'Slick Mobile Dispatch Hub, Khon Kaen'
+        })
+      });
       if (res.ok) {
         const data = await res.json();
         setEstimateData(data);
