@@ -54,3 +54,9 @@ When deploying, ensure your host has the correct configuration:
 Configure your hosting provider with the following commands:
 * **Build Command:** `npm install && npm run build`
 * **Start Command:** `npm run start` (Executes the compiled `dist/server.cjs`)
+
+## 🔐 SPIFFE Workload Identity & AP2 Payment Protocol
+This storefront agent validates incoming payments autonomously utilizing JWS cryptographic verification.
+- **Workload Identity SPIFFE ID:** `spiffe://project-titan.com/ns/default/sa/storefront-agent`
+- **Payment Verification Key:** Asymmetric RSA-256 Public Key (`public_key.pem`)
+- **Decoupled Security Anchors:** Published progressively via the Federated ai-catalog endpoint `/.well-known/ai-catalog.json`.
