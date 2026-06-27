@@ -65,7 +65,7 @@ To achieve bank-grade machine-to-machine payment verification, the storefront ag
 - **OAuth Token Separation**: Google Sheets API authorization tokens are cached in-memory only. They are never written to database files, persistent logs, or terminal streams.
 - **Geographic Generalization**: Location GPS coordinates are processed local-only for travel estimates, ensuring user routing details are never leaked.
 
-## 📊 Evals and Testing Framework (Kaggle Capstone)
+## 📊 Evals and Testing Framework 
 This project implements a complete evaluations framework:
 1. **Deterministic Evals**: Measured via an automated test suite (`test-security.js`) verifying signature validity, replay rejection, expired signature blocking, and parameter safety bounds.
 2. **Agent / LLM Evals**: grading the Concierge's anomaly sensitivity (identifying high tire temps or low pressure from raw telemetry) and Maps Grounding context accuracy.

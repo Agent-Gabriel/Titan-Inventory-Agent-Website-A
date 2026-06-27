@@ -1,68 +1,89 @@
-### Task 1: Environment Routing, CORS and Key Generation Setup
+### Task 1: Harden Website B Signature and Checkout Flow
 
-- [ ] **Step 1: Write key generation script**
-  Create `generate-keys.js` in the root projects parent folder `c:\Users\craig\01_Projects\001_Kaggle\generate-keys.js`.
-  ```javascript
-  const crypto = require('crypto');
-  const fs = require('fs');
-  const path = require('path');
+**Files:**
+- Modify: `c:\Users\craig\01_Projects\001_Kaggle\Concierge-Agent-website-B\app\api\ap2-sign\route.ts:31-40`
+- Modify: `c:\Users\craig\01_Projects\001_Kaggle\Concierge-Agent-website-B\app\page.tsx:174-241`
 
-  const websiteBDir = 'c:\\Users\\craig\\01_Projects\\001_Kaggle\\Concierge-Agent-website-B';
-  const websiteADir = 'c:\\Users\\craig\\01_Projects\\001_Kaggle\\Titan-Inventory-Agent-Website-A';
+**Interfaces:**
+- Consumes: `/api/ap2-sign` POST endpoint.
+- Produces: Signed payload JWS including `transactionId` and `timestamp`.
 
-  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-    publicKeyEncoding: {
-      type: 'spki',
-      format: 'pem'
-    },
-    privateKeyEncoding: {
-      type: 'pkcs8',
-      format: 'pem'
-    }
-  });
-
-  fs.writeFileSync(path.join(websiteBDir, 'private_key.pem'), privateKey);
-  fs.writeFileSync(path.join(websiteBDir, 'public_key.pem'), publicKey);
-  fs.writeFileSync(path.join(websiteADir, 'public_key.pem'), publicKey);
-
-  console.log('Keys generated and written successfully.');
-  ```
-
-- [ ] **Step 2: Run key generation script**
-  Execute `node generate-keys.js` in the terminal to verify the key PEM files are written successfully.
-
-- [ ] **Step 3: Setup Website B environment configuration**
-  Create `.env` file at `c:\Users\craig\01_Projects\001_Kaggle\Concierge-Agent-website-B\.env` with contents:
-  ```env
-  NEXT_PUBLIC_STOREFRONT_AGENT_URL="http://localhost:3000"
-  APP_URL="http://localhost:3001"
-  ```
-
-- [ ] **Step 4: Setup Website A environment configuration**
-  Create `.env` file at `c:\Users\craig\01_Projects\001_Kaggle\Titan-Inventory-Agent-Website-A\.env` with contents:
-  ```env
-  CONCIERGE_AGENT_URL="http://localhost:3001"
-  APP_URL="http://localhost:3000"
-  ```
-
-- [ ] **Step 5: Add Dotenv loading and CORS headers to Website A server**
-  Modify `c:\Users\craig\01_Projects\001_Kaggle\Titan-Inventory-Agent-Website-A\server.ts` to include `dotenv` initialization and custom CORS middleware.
-  Add at line 1:
+- [ ] **Step 1: Update validation schema in sign route**
+  Modify `c:\Users\craig\01_Projects\001_Kaggle\Concierge-Agent-website-B\app\api\ap2-sign\route.ts` to require `transactionId` and `timestamp` in the signature payload validation checks.
+  Replace lines 31-39:
   ```typescript
-  import 'dotenv/config';
+  const requiredFields = ["item", "quantity", "total", "maxPrice", "transactionId", "timestamp"];
+  const missingFields = requiredFields.filter(field => payload[field] === undefined);
+  if (missingFields.length > 0) {
+    return NextResponse.json(
+      { error: `Missing required fields: ${missingFields.join(", ")}` },
+      { status: 400 }
+    );
+  }
   ```
-  Add after `app.use(express.json());`:
+
+- [ ] **Step 2: Generate dynamic transactionId and timestamp in checkout page**
+  Modify `c:\Users\craig\01_Projects\001_Kaggle\Concierge-Agent-website-B\app\page.tsx` to generate unique transaction IDs and current epoch timestamps during checkout, and pass them as RPC parameters.
+  Replace lines 174-213:
   ```typescript
-  app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
-    }
-    next();
-  });
+  const triggerAP2Payment = async () => {
+    setCheckoutStatus("authorizing");
+    
+    try {
+      const storefrontUrl = process.env.NEXT_PUBLIC_STOREFRONT_AGENT_URL || "http://localhost:3000";
+      
+      const transactionId = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+      const timestamp = Date.now();
+      
+      const payload = {
+        item: "Michelin Pilot Sport Cup 2",
+        quantity: 1,
+        maxPrice: 250000,
+        total: 205000,
+        transactionId,
+        timestamp
+      };
+      
+      const signRes = await fetch("/api/ap2-sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!signRes.ok) {
+        throw new Error("Failed to sign transaction payload");
+      }
+      
+      const { jws } = await signRes.json();
+      
+      const rpcRes = await fetch(`${storefrontUrl}/api/rpc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "negotiate_order",
+          params: {
+            item: "Michelin Pilot Sport Cup 2",
+            quantity: 1,
+            maxPrice: 250000,
+            paymentNote: jws,
+            transactionId,
+            timestamp
+          },
+          id: Date.now()
+        })
+      });
+  ```
+
+- [ ] **Step 3: Run ESLint to verify no syntactic issues in Website B**
+  Run: `npm run lint` in `c:\Users\craig\01_Projects\001_Kaggle\Concierge-Agent-website-B`
+  Expected: PASS
+
+- [ ] **Step 4: Commit Website B changes**
+  ```bash
+  git add app/api/ap2-sign/route.ts app/page.tsx
+  git commit -m "feat: add transactionId and timestamp parameters to payment signing and checkout"
   ```
 
 ---
+
